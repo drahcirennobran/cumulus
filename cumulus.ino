@@ -1,4 +1,3 @@
-#include <RBDdimmer.h>
 #include <ArduinoMqttClient.h>
 
 #include <EEPROM.h>
@@ -11,7 +10,6 @@
 
 #define USE_SERIAL Serial
 #define outputPin 5
-#define zerocross 4
 
 #define EPROM_ON 0
 #define EPROM_AUTO 1
@@ -21,8 +19,6 @@ const char* password = STAPSK;
 const bool retained = false;
 const int qos = 1;
 const bool dup = false;
-
-dimmerLamp dimmer(outputPin, zerocross);
 
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
@@ -47,10 +43,11 @@ bool autoState = false;
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
+  pinMode(outputPin, OUTPUT);
+  analogWrite(outputPin, 0);
+
   Serial.begin(115200);
   Serial.println("Booting");
-
-  dimmer.begin(NORMAL_MODE, ON);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -132,10 +129,10 @@ void loop() {
   cpt++;
   cpt %= 10;
 
-  delay(500);
+  delay(5000);
 
   if (cpt == 0) {
-    String payload = String(load);
+    String payload = String(load / 2.55);
     mqttClient.beginMessage(topicLoad, payload.length(), retained, qos, dup);
     mqttClient.print(payload);
     mqttClient.endMessage();
@@ -151,7 +148,7 @@ void loop() {
     mqttClient.endMessage();
   }
   if (load != previousLoad) {
-    String payload = String(load);
+    String payload = String(load / 2.55);
     mqttClient.beginMessage(topicLoad, payload.length(), retained, qos, dup);
     mqttClient.print(payload);
     mqttClient.endMessage();
@@ -196,32 +193,26 @@ void onMqttMessage(int messageSize) {
 void command() {
   if (commandState) {
     if (autoState) {
-      load -= conso / 30;
+      load -= conso * 2.55 / 30;
     } else {
-      load = loadHA;
+      load = loadHA * 2.55;
     }
 
-    if (load < 4) {
+    if (load < 10) {
       load = 0;
-      dimmer.setState(OFF);
-      Serial.println("dimmer.setState off");
     } else {
-      dimmer.setState(ON);
-      Serial.println("dimmer.setState on");
+      if (load > 255) {
+        load = 255;
+      }
     }
-    if (load > 100) {
-      load = 100;
-    }
-    dimmer.setPower(load);
+  } else {
+    load = 0;
+  }
+    analogWrite(outputPin, load);
     Serial.print("dimmer.setPower : ");
     Serial.println(load);
-
-  } else {
-    dimmer.setState(OFF);
-    load = 0;
-    Serial.println("dimmer.setState off");
-  }
 }
+
 
 inline void setState(const char* topic, bool s) {
   String payload = s ? "on" : "off";
